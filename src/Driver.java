@@ -8,7 +8,7 @@ public class Driver {
 	
 	public static void main(String[] args) {
 		
-		BufferedImage map = new MapLoader(new File("map.png")).load();
+		BufferedImage map = new MapLoader(new File("map2.png")).load();
 		boolean[][] rainshadow = new MapAnalyzer().findRainShadows(map);
 		
 		/*

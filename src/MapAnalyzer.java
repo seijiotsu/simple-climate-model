@@ -13,13 +13,14 @@ public class MapAnalyzer {
 	final int RAINSHADOW_INC = 60;
 	final int WATER_RAINSHADOW_DEC = 10;
 	final int LAND_RAINSHADOW_DEC = 1;
+	final int MAX_RAINSHADOW_BLOB = 5;
 	
-	final int CELL_SCALE_FACTOR = 48;
-	final int MAX_CELLS_MERGE = CELL_SCALE_FACTOR / 5;
-	final int MAX_SEARCH_SPACE = CELL_SCALE_FACTOR / 12;
+	final int CELL_SCALE_FACTOR = 5;
+	final int MAX_CELLS_MERGE = (int)Math.pow(140/CELL_SCALE_FACTOR, 2);
+	final int MAX_SEARCH_SPACE = (int)Math.pow(25/CELL_SCALE_FACTOR, 2);
 	
-	final int MAX_COAST_FILL = CELL_SCALE_FACTOR / 12;
-	final int MAX_TRANSITION_FILL = CELL_SCALE_FACTOR / 12;
+	final int MAX_COAST_FILL = 150/CELL_SCALE_FACTOR;
+	final int MAX_TRANSITION_FILL = 120/CELL_SCALE_FACTOR;
 	
 	final int MAX_EXP_SEARCH_SPACE = MAX_SEARCH_SPACE;
 	
@@ -48,6 +49,23 @@ public class MapAnalyzer {
 		
 		latitude = Math.min(90, latitude);
 		latitude = latitude - (latitude % 5); //floor to nearest multiple of 5;
+		
+		if(rainshadow) {
+			switch(latitude) {
+			case 0: case 5: case 10:
+				return Climates.TROPICALSCRUB;
+			case 15:
+				return Climates.SUBTROPICALSCRUB;
+			case 20: case 25:
+				return Climates.EXTREMEDESERT;
+			case 30: case 35:
+				return Climates.DESERT;
+			case 40: case 45: case 50: case 55:
+				return Climates.COOLDESERT;
+			case 60: case 65: case 70: case 75: case 80: case 85: case 90:
+				return Climates.POLARDESERT;
+			}
+		}
 		
 		switch(latitude) {
 		case 0:
@@ -142,7 +160,8 @@ public class MapAnalyzer {
 			switch(region) {
 			case 1: return Climates.TEMPERATEWETFOREST;
 			case 2: return Climates.TEMPERATEWOODLANDS;
-			case 3: return Climates.TEMPERATEWOODLANDS;
+			case 3: return Climates.BOREALFOREST; //Changed from default TEMPERATEWOODLANDS in Shagomir's key
+			
 			case 4: return Climates.BOREALFOREST;
 			case 5: return Climates.BOREALFOREST;
 			}
@@ -454,9 +473,7 @@ public class MapAnalyzer {
 				int minDistanceType = 0;
 				
 				ArrayList<Integer> keys = new ArrayList<Integer>(distance.keySet());
-				
-				System.out.print(keys + " -> ");
-				
+								
 				for(int i = 0; i < keys.size(); i++) {
 					if(distance.get(keys.get(i)) < minDistance) {
 						minDistance = distance.get(keys.get(i));
@@ -464,11 +481,9 @@ public class MapAnalyzer {
 					}
 				}
 				
-				System.out.println(minDistanceType);
 				
 				if(minDistanceType != 0) {
 					areasToAdd[row][col] = minDistanceType;
-					System.out.println("The closest type was " + minDistanceType + " belonging to continent #" + distanceContinent.get(minDistanceType));
 					areasToAddCont[row][col] = distanceContinent.get(minDistanceType);
 				}
 			}
@@ -477,7 +492,6 @@ public class MapAnalyzer {
 		for(int i = 0; i < areasToAdd.length; i++) {
 			for(int j = 0; j < areasToAdd[0].length; j++) {
 				if(areasToAdd[i][j] != 0) {
-					System.out.println("Adding " + i + " " + j);
 					cellX_transitions[i][j] = areasToAdd[i][j];
 					cellX[i][j] = areasToAddCont[i][j];
 				}
@@ -629,6 +643,9 @@ public class MapAnalyzer {
 		for(int i = 0; i < sizes.length; i++) {
 			if(sizes[i] > MAX_CELLS_MERGE) continue; //Don't merge regions if they're larger than X cells
 			
+			int minDistance = Integer.MAX_VALUE;
+			int minDistanceID = -1;
+			
 			for(int row = 0; row < cellX.length; row++) {
 				for(int col = 0; col < cellX[0].length; col++) {
 					if(cellX[row][col] != i) continue;
@@ -641,14 +658,18 @@ public class MapAnalyzer {
 							if(col + c2 < 0 || col + c2 >= cellX[0].length) continue;
 							
 							int id = cellX[row + r2][col + c2];
+							int distance = Math.abs(r2) + Math.abs(c2);
 							
-							if(id != -1 && sizes[id] > sizes[i]) {
-								cellX = merge(cellX, id, i);
+							if(id != -1 && sizes[id] > sizes[i] && distance < minDistance) {
+								minDistance = distance;
+								minDistanceID = id;
 							}
 						}
 					}
 				}
 			}
+			
+			if(minDistanceID != -1) cellX = merge(cellX, minDistanceID, i);
 		}
 		
 		return cellX;
@@ -717,7 +738,7 @@ public class MapAnalyzer {
 					
 					maxElev = Math.max(maxElev, elevation);
 					
-					if(elevation < maxElev - 30 && elevation < currElev && currElev >= 110) {
+					if(elevation < maxElev - 10 && elevation < currElev && currElev >= 110) {
 						rainshadowCounter = RAINSHADOW_INC;
 					}
 				}
@@ -731,7 +752,37 @@ public class MapAnalyzer {
 			}
 		}
 		
-		return rainshadow;
+		/*
+		 * Make rainshadows more blobby
+		 */
+		
+		boolean[][] blob_rainshadow = new boolean[rainshadow.length][rainshadow[0].length];
+		for(int row = 0; row < blob_rainshadow.length; row++) {
+			for(int col = 0; col < blob_rainshadow[0].length; col++) {
+				
+				int numRainshadow = 0;
+				int numNotRainshadow = 0;
+				
+				for(int r2 = -MAX_RAINSHADOW_BLOB; r2 <= MAX_RAINSHADOW_BLOB; r2++) {
+					for(int c2 = -MAX_RAINSHADOW_BLOB; c2 <= MAX_RAINSHADOW_BLOB; c2++) {
+						
+						if(row + r2 < 0 || row + r2 >= blob_rainshadow.length) break;
+						if(col + c2 < 0 || col + c2 >= blob_rainshadow[0].length) continue;
+						
+						if(rainshadow[row + r2][col + c2]) {
+							numRainshadow++;
+						} else {
+							numNotRainshadow++;
+						}
+					}
+				}
+				if(numRainshadow >= numNotRainshadow) {
+					blob_rainshadow[row][col] = true;
+				}
+			}
+		}
+		
+		return blob_rainshadow;
 	}
 	
 	/*
